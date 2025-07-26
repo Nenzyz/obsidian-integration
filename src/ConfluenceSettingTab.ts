@@ -45,17 +45,46 @@ export class ConfluenceSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Atlassian API Token")
-			.setDesc("")
-			.addText((text) =>
-				text
-					.setPlaceholder("")
-					.setValue(this.plugin.settings.atlassianApiToken)
+			.setName("Authentication Method")
+			.setDesc("Choose between Basic Authentication (Cloud/older Server) or Personal Access Token (Server 7.9+)")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.usePersonalAccessToken)
 					.onChange(async (value) => {
-						this.plugin.settings.atlassianApiToken = value;
+						this.plugin.settings.usePersonalAccessToken = value;
 						await this.plugin.saveSettings();
-					}),
-			);
+						this.display(); // Refresh the settings display
+					})
+			)
+			.setName(this.plugin.settings.usePersonalAccessToken ? "Use Personal Access Token" : "Use Basic Authentication");
+
+		if (this.plugin.settings.usePersonalAccessToken) {
+			new Setting(containerEl)
+				.setName("Personal Access Token")
+				.setDesc("PAT from Confluence Server (Settings > Personal Access Tokens)")
+				.addText((text) =>
+					text
+						.setPlaceholder("Your Personal Access Token")
+						.setValue(this.plugin.settings.personalAccessToken)
+						.onChange(async (value) => {
+							this.plugin.settings.personalAccessToken = value;
+							await this.plugin.saveSettings();
+						}),
+				);
+		} else {
+			new Setting(containerEl)
+				.setName("Atlassian API Token")
+				.setDesc("API Token for Confluence Cloud or basic auth")
+				.addText((text) =>
+					text
+						.setPlaceholder("Atlassian API Token")
+						.setValue(this.plugin.settings.atlassianApiToken)
+						.onChange(async (value) => {
+							this.plugin.settings.atlassianApiToken = value;
+							await this.plugin.saveSettings();
+						}),
+				);
+		}
 
 		new Setting(containerEl)
 			.setName("Confluence Parent Page ID")

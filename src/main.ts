@@ -18,6 +18,7 @@ import {
 	ConfluencePerPageUIValues,
 	mapFrontmatterToConfluencePerPageUIValues,
 } from "./ConfluencePerPageForm";
+import { PlantUMLRendererPlugin } from "./PlantUMLRendererPlugin";
 import { Mermaid } from "mermaid";
 
 export interface ObsidianPluginSettings
@@ -30,6 +31,9 @@ export interface ObsidianPluginSettings
 		| "neutral"
 		| "dark"
 		| "forest";
+	usePersonalAccessToken: boolean;
+	personalAccessToken: string;
+	useStorageFormat: boolean;
 }
 
 interface FailedFile {
@@ -66,22 +70,35 @@ export default class ConfluencePlugin extends Plugin {
 		);
 
 		const mermaidItems = await this.getMermaidItems();
-		const mermaidRenderer = new ElectronMermaidRenderer(
-			mermaidItems.extraStyleSheets,
-			mermaidItems.extraStyles,
-			mermaidItems.mermaidConfig,
-			mermaidItems.bodyStyles,
-		);
+		let mermaidRenderer;
+		try {
+			mermaidRenderer = new ElectronMermaidRenderer(
+				mermaidItems.extraStyleSheets,
+				mermaidItems.extraStyles,
+				mermaidItems.mermaidConfig,
+				mermaidItems.bodyStyles,
+			);
+		} catch (error: any) {
+			console.warn('ElectronMermaidRenderer initialization failed, Mermaid charts may not render properly:', error);
+			// Fallback: Create a dummy renderer that doesn't break the plugin
+			mermaidRenderer = {
+				captureMermaidCharts: async () => new Map()
+			};
+		}
 		const confluenceClient = new ObsidianConfluenceClient({
 			host: this.settings.confluenceBaseUrl,
-			authentication: {
-				basic: {
-					email: this.settings.atlassianUserName,
-					apiToken: this.settings.atlassianApiToken,
+			authentication: this.settings.usePersonalAccessToken
+				? {
+					personalAccessToken: this.settings.personalAccessToken,
+				}
+				: {
+					basic: {
+						email: this.settings.atlassianUserName,
+						apiToken: this.settings.atlassianApiToken,
+					},
 				},
-			},
 			middlewares: {
-				onError(e) {
+				onError(e: any) {
 					if ("response" in e && "data" in e.response) {
 						e.message =
 							typeof e.response.data === "string"
@@ -92,12 +109,282 @@ export default class ConfluencePlugin extends Plugin {
 			},
 		});
 
+		// When using PAT authentication, we need to fetch current user info
+		// to populate account ID for page metadata
+		// TODO: The getCurrentUser method seems to be missing from the types
+		// but exists in the implementation. For now, commenting out to allow build.
+		// The user info issue may need to be handled differently for Confluence Server.
+		/*
+		if (this.settings.usePersonalAccessToken) {
+			try {
+				const currentUser = await confluenceClient.users.getCurrentUser({});
+				console.log('Current user info:', currentUser);
+				// Store user info for later use by the publisher
+				// In Confluence Server, userKey is used instead of accountId
+				(confluenceClient as any).currentUser = currentUser;
+				(confluenceClient as any).currentUserKey = currentUser.userKey || currentUser.key;
+			} catch (error) {
+				console.warn('Failed to fetch current user info:', error);
+			}
+		}
+		*/
+
 		const settingsLoader = new StaticSettingsLoader(this.settings);
+		
+		// For PAT authentication with Confluence Server, we need to handle user info differently
+		// The Publisher expects accountId but Server uses userKey
+		if (this.settings.usePersonalAccessToken) {
+			// Helper function to recursively map userKey to accountId in any object
+			const mapUserKeys = (obj: any): any => {
+				if (!obj || typeof obj !== 'object') return obj;
+				
+				if (Array.isArray(obj)) {
+					return obj.map(mapUserKeys);
+				}
+				
+				const result = { ...obj };
+				
+				// If this looks like a user object, map userKey to accountId
+				if (result.userKey && !result.accountId) {
+					console.log('Mapping userKey to accountId:', result.userKey);
+					result.accountId = result.userKey;
+				}
+				
+				// Recursively process all properties
+				for (const key in result) {
+					if (result.hasOwnProperty(key) && typeof result[key] === 'object') {
+						result[key] = mapUserKeys(result[key]);
+					}
+				}
+				
+				return result;
+			};
+
+			// Patch the users API getCurrentUser method
+			const usersApi = (confluenceClient.users as any);
+			if (usersApi.getCurrentUser) {
+				const originalGetCurrentUser = usersApi.getCurrentUser;
+				usersApi.getCurrentUser = async function(params?: any) {
+					console.log('getCurrentUser called with params:', params);
+					const user = await originalGetCurrentUser.call(this, params || {});
+					console.log('getCurrentUser original response:', user);
+					const mappedUser = mapUserKeys(user);
+					console.log('getCurrentUser mapped response:', mappedUser);
+					return mappedUser;
+				};
+			}
+
+			// Patch the content API methods that return page information with user data
+			const contentApi = confluenceClient.content as any;
+			if (contentApi.getContentById) {
+				const originalGetContentById = contentApi.getContentById;
+				contentApi.getContentById = async function(params?: any) {
+					const content = await originalGetContentById.call(this, params || {});
+					return mapUserKeys(content);
+				};
+			}
+
+			if (contentApi.updateContent) {
+				const originalUpdateContent = contentApi.updateContent;
+				contentApi.updateContent = async function(params?: any) {
+					const content = await originalUpdateContent.call(this, params || {});
+					return mapUserKeys(content);
+				};
+			}
+
+			if (contentApi.createContent) {
+				const originalCreateContent = contentApi.createContent;
+				contentApi.createContent = async function(params?: any) {
+					const content = await originalCreateContent.call(this, params || {});
+					return mapUserKeys(content);
+				};
+			}
+		}
+
+		// Patch Publisher to use storage format instead of ADF for Confluence Server compatibility
+		console.log('useStorageFormat setting:', this.settings.useStorageFormat);
+		if (this.settings.useStorageFormat) {
+			// Simple ADF to storage format converter
+			const adfToStorageFormat = (adf: any): string => {
+				if (!adf || !adf.content) return '';
+				
+				// Helper function to escape XML content
+				const escapeXML = (str: string): string => {
+					return str
+						.replace(/&/g, '&amp;')
+						.replace(/</g, '&lt;')
+						.replace(/>/g, '&gt;')
+						.replace(/"/g, '&quot;')
+						.replace(/'/g, '&apos;');
+				};
+				
+				// Helper function to safely wrap content in CDATA
+				const wrapCDATA = (content: string): string => {
+					// If content contains ]]>, we need to split it
+					if (content.includes(']]>')) {
+						// Split CDATA sections when ]]> is present
+						return content.split(']]>').map(part => `<![CDATA[${part}]]>`).join(']]&gt;<![CDATA[');
+					}
+					return `<![CDATA[${content}]]>`;
+				};
+				
+				// Helper function to convert tables
+				const convertTable = (tableNode: any): string => {
+					if (!tableNode || !tableNode.content) return '';
+					
+					const tableContent = tableNode.content.map(convertNode).join('');
+					return `<table><tbody>${tableContent}</tbody></table>`;
+				};
+				
+				const convertNode = (node: any): string => {
+					if (!node || !node.type) return '';
+					
+					switch (node.type) {
+						case 'paragraph':
+							const content = node.content?.map(convertNode).join('') || '';
+							return `<p>${content}</p>`;
+						case 'text':
+							return escapeXML(node.text || '');
+						case 'hardBreak':
+							return '<br/>';
+						case 'heading':
+							const level = node.attrs?.level || 1;
+							const headingContent = node.content?.map(convertNode).join('') || '';
+							return `<h${level}>${headingContent}</h${level}>`;
+						case 'codeBlock':
+							// For code blocks, don't escape the content - CDATA will handle it
+							const codeContent = node.content?.map((n: any) => n.text || '').join('') || '';
+							const language = node.attrs?.language || '';
+							let macro = `<ac:structured-macro ac:name="code">`;
+							if (language) {
+								macro += `<ac:parameter ac:name="language">${escapeXML(language)}</ac:parameter>`;
+							}
+							macro += `<ac:plain-text-body>${wrapCDATA(codeContent)}</ac:plain-text-body></ac:structured-macro>`;
+							return macro;
+						case 'table':
+							return convertTable(node);
+						case 'tableRow':
+							const rowContent = node.content?.map(convertNode).join('') || '';
+							return `<tr>${rowContent}</tr>`;
+						case 'tableHeader':
+							const headerContent = node.content?.map(convertNode).join('') || '';
+							return `<th>${headerContent}</th>`;
+						case 'tableCell':
+							const cellContent = node.content?.map(convertNode).join('') || '';
+							return `<td>${cellContent}</td>`;
+						case 'bulletList':
+							const bulletListContent = node.content?.map(convertNode).join('') || '';
+							return `<ul>${bulletListContent}</ul>`;
+						case 'orderedList':
+							const orderedListContent = node.content?.map(convertNode).join('') || '';
+							return `<ol>${orderedListContent}</ol>`;
+						case 'listItem':
+							const listItemContent = node.content?.map(convertNode).join('') || '';
+							return `<li>${listItemContent}</li>`;
+						case 'extension':
+							// Handle PlantUML and other extensions
+							if (node.attrs?.extensionKey === 'plantuml') {
+								const plantUMLContent = node.content?.[0]?.content?.[0]?.text || '';
+								
+								// Get diagram name from macro parameters (set by PlantUMLRendererPlugin)
+								const macroParams = node.attrs?.parameters?.macroParams || {};
+								const diagramName = macroParams.title || '';
+								
+								console.log('PlantUML content for storage conversion:', plantUMLContent);
+								console.log('PlantUML title from macro params:', diagramName);
+								
+								// Build the macro with optional name parameter
+								let macro = `<ac:structured-macro ac:name="plantuml" ac:schema-version="1">`;
+								macro += `<ac:parameter ac:name="atlassian-macro-output-type">INLINE</ac:parameter>`;
+								if (diagramName) {
+									macro += `<ac:parameter ac:name="title">${escapeXML(diagramName)}</ac:parameter>`;
+								}
+								macro += `<ac:plain-text-body>${wrapCDATA(plantUMLContent)}</ac:plain-text-body>`;
+								macro += `</ac:structured-macro>`;
+								
+								return macro;
+							}
+							return '';
+						default:
+							// For unknown nodes, try to process their content
+							if (node.content) {
+								return node.content.map(convertNode).join('');
+							}
+							return '';
+					}
+				};
+				
+				return adf.content.map(convertNode).join('');
+			};
+			
+			// Patch the content API to convert ADF to storage format before sending
+			const contentApi = confluenceClient.content as any;
+			
+			if (contentApi.createContent) {
+				const originalCreateContent = contentApi.createContent;
+				contentApi.createContent = async function(params: any) {
+					console.log('createContent called with params:', JSON.stringify(params, null, 2));
+					if (params.body?.atlas_doc_format?.value) {
+						console.log('Converting ADF to storage format...');
+						// Convert ADF to storage format
+						const adfContent = JSON.parse(params.body.atlas_doc_format.value);
+						const storageContent = adfToStorageFormat(adfContent);
+						console.log('ADF content:', adfContent);
+						console.log('Converted storage content:', storageContent);
+						
+						// Replace ADF with storage format
+						params.body = {
+							storage: {
+								value: storageContent,
+								representation: "storage"
+							}
+						};
+						delete params.body.atlas_doc_format;
+						console.log('Updated params after conversion:', JSON.stringify(params, null, 2));
+					} else {
+						console.log('No ADF content found in createContent params');
+					}
+					return await originalCreateContent.call(this, params);
+				};
+			}
+
+			if (contentApi.updateContent) {
+				const originalUpdateContent = contentApi.updateContent;
+				contentApi.updateContent = async function(params: any) {
+					console.log('updateContent called with params:', JSON.stringify(params, null, 2));
+					if (params.body?.atlas_doc_format?.value) {
+						console.log('Converting ADF to storage format...');
+						// Convert ADF to storage format
+						const adfContent = JSON.parse(params.body.atlas_doc_format.value);
+						const storageContent = adfToStorageFormat(adfContent);
+						console.log('ADF content:', adfContent);
+						console.log('Converted storage content:', storageContent);
+						
+						// Replace ADF with storage format
+						params.body = {
+							storage: {
+								value: storageContent,
+								representation: "storage"
+							}
+						};
+						delete params.body.atlas_doc_format;
+						console.log('Updated params after conversion:', JSON.stringify(params, null, 2));
+					} else {
+						console.log('No ADF content found in updateContent params');
+					}
+					return await originalUpdateContent.call(this, params);
+				};
+			}
+		}
+		
 		this.publisher = new Publisher(
 			this.adaptor,
 			settingsLoader,
 			confluenceClient,
-			[new MermaidRendererPlugin(mermaidRenderer)],
+			[
+				new MermaidRendererPlugin(mermaidRenderer),
+				new PlantUMLRendererPlugin(),
+			],
 		);
 	}
 
@@ -489,7 +776,12 @@ export default class ConfluencePlugin extends Plugin {
 		this.settings = Object.assign(
 			{},
 			ConfluenceUploadSettings.DEFAULT_SETTINGS,
-			{ mermaidTheme: "match-obsidian" },
+			{ 
+				mermaidTheme: "match-obsidian",
+				usePersonalAccessToken: false,
+				personalAccessToken: "",
+				useStorageFormat: true, // Default to true for Confluence Server compatibility
+			},
 			await this.loadData(),
 		);
 	}

@@ -12,8 +12,8 @@ import { RequiredConfluenceClient } from "@markdown-confluence/lib";
 const ATLASSIAN_TOKEN_CHECK_FLAG = "X-Atlassian-Token";
 const ATLASSIAN_TOKEN_CHECK_NOCHECK_VALUE = "no-check";
 
-export class MyBaseClient implements Client {
-	protected urlSuffix = "/wiki/rest";
+export class MyBaseClient {
+	protected urlSuffix = "/rest";
 
 	constructor(protected readonly config: Config) {}
 
