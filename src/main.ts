@@ -109,25 +109,6 @@ export default class ConfluencePlugin extends Plugin {
 			},
 		});
 
-		// When using PAT authentication, we need to fetch current user info
-		// to populate account ID for page metadata
-		// TODO: The getCurrentUser method seems to be missing from the types
-		// but exists in the implementation. For now, commenting out to allow build.
-		// The user info issue may need to be handled differently for Confluence Server.
-		/*
-		if (this.settings.usePersonalAccessToken) {
-			try {
-				const currentUser = await confluenceClient.users.getCurrentUser({});
-				console.log('Current user info:', currentUser);
-				// Store user info for later use by the publisher
-				// In Confluence Server, userKey is used instead of accountId
-				(confluenceClient as any).currentUser = currentUser;
-				(confluenceClient as any).currentUserKey = currentUser.userKey || currentUser.key;
-			} catch (error) {
-				console.warn('Failed to fetch current user info:', error);
-			}
-		}
-		*/
 
 		const settingsLoader = new StaticSettingsLoader(this.settings);
 		
@@ -146,7 +127,7 @@ export default class ConfluencePlugin extends Plugin {
 				
 				// If this looks like a user object, map userKey to accountId
 				if (result.userKey && !result.accountId) {
-					console.log('Mapping userKey to accountId:', result.userKey);
+					// Mapping userKey to accountId
 					result.accountId = result.userKey;
 				}
 				
@@ -165,11 +146,8 @@ export default class ConfluencePlugin extends Plugin {
 			if (usersApi.getCurrentUser) {
 				const originalGetCurrentUser = usersApi.getCurrentUser;
 				usersApi.getCurrentUser = async function(params?: any) {
-					console.log('getCurrentUser called with params:', params);
 					const user = await originalGetCurrentUser.call(this, params || {});
-					console.log('getCurrentUser original response:', user);
 					const mappedUser = mapUserKeys(user);
-					console.log('getCurrentUser mapped response:', mappedUser);
 					return mappedUser;
 				};
 			}
@@ -202,7 +180,6 @@ export default class ConfluencePlugin extends Plugin {
 		}
 
 		// Patch Publisher to use storage format instead of ADF for Confluence Server compatibility
-		console.log('useStorageFormat setting:', this.settings.useStorageFormat);
 		if (this.settings.useStorageFormat) {
 			// Simple ADF to storage format converter
 			const adfToStorageFormat = (adf: any): string => {
@@ -290,8 +267,6 @@ export default class ConfluencePlugin extends Plugin {
 								const macroParams = node.attrs?.parameters?.macroParams || {};
 								const diagramName = macroParams.title || '';
 								
-								console.log('PlantUML content for storage conversion:', plantUMLContent);
-								console.log('PlantUML title from macro params:', diagramName);
 								
 								// Build the macro with optional name parameter
 								let macro = `<ac:structured-macro ac:name="plantuml" ac:schema-version="1">`;
@@ -323,14 +298,10 @@ export default class ConfluencePlugin extends Plugin {
 			if (contentApi.createContent) {
 				const originalCreateContent = contentApi.createContent;
 				contentApi.createContent = async function(params: any) {
-					console.log('createContent called with params:', JSON.stringify(params, null, 2));
 					if (params.body?.atlas_doc_format?.value) {
-						console.log('Converting ADF to storage format...');
 						// Convert ADF to storage format
 						const adfContent = JSON.parse(params.body.atlas_doc_format.value);
 						const storageContent = adfToStorageFormat(adfContent);
-						console.log('ADF content:', adfContent);
-						console.log('Converted storage content:', storageContent);
 						
 						// Replace ADF with storage format
 						params.body = {
@@ -340,9 +311,6 @@ export default class ConfluencePlugin extends Plugin {
 							}
 						};
 						delete params.body.atlas_doc_format;
-						console.log('Updated params after conversion:', JSON.stringify(params, null, 2));
-					} else {
-						console.log('No ADF content found in createContent params');
 					}
 					return await originalCreateContent.call(this, params);
 				};
@@ -353,12 +321,9 @@ export default class ConfluencePlugin extends Plugin {
 				contentApi.updateContent = async function(params: any) {
 					console.log('updateContent called with params:', JSON.stringify(params, null, 2));
 					if (params.body?.atlas_doc_format?.value) {
-						console.log('Converting ADF to storage format...');
 						// Convert ADF to storage format
 						const adfContent = JSON.parse(params.body.atlas_doc_format.value);
 						const storageContent = adfToStorageFormat(adfContent);
-						console.log('ADF content:', adfContent);
-						console.log('Converted storage content:', storageContent);
 						
 						// Replace ADF with storage format
 						params.body = {
@@ -526,12 +491,6 @@ export default class ConfluencePlugin extends Plugin {
 			id: "adf-to-markdown",
 			name: "ADF To Markdown",
 			callback: async () => {
-				console.log("HMMMM");
-				const json = JSON.parse(
-					'{"type":"doc","content":[{"type":"paragraph","content":[{"text":"Testing","type":"text"}]}],"version":1}',
-				);
-				console.log({ json });
-
 				const confluenceClient = new ObsidianConfluenceClient({
 					host: this.settings.confluenceBaseUrl,
 					authentication: {

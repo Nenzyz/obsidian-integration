@@ -37,29 +37,24 @@ export class PlantUMLRendererPlugin implements ADFProcessingPlugin<void, void> {
 					const lines = plantUMLContent.split('\n');
 					let diagramName = '';
 					
-					console.log('PlantUML original content:', plantUMLContent);
-					
+						
 					// Check if it starts with @startuml and has a name
 					if (lines.length > 0 && lines[0].trim().match(/^\s*@startuml/i)) {
 						const startLine = lines[0].trim();
-						console.log('Start line:', startLine);
-						const nameMatch = startLine.match(/@startuml\s+(.+)/i);
+							const nameMatch = startLine.match(/@startuml\s+(.+)/i);
 						if (nameMatch) {
 							diagramName = nameMatch[1].trim();
-							console.log('Extracted diagram name from @startuml:', diagramName);
-						}
+							}
 					} else {
 						// If it doesn't start with @startuml, check for title directive or use first line
-						console.log('Content does not start with @startuml, checking for title directive or first line as title');
-						
+							
 						// Look for 'title' directive in the content
 						let titleDirectiveFound = false;
 						for (let i = 0; i < lines.length; i++) {
 							const line = lines[i].trim();
 							if (line.startsWith('title ')) {
 								diagramName = line.substring(6).trim();
-								console.log('Extracted diagram name from title directive:', diagramName);
-								titleDirectiveFound = true;
+									titleDirectiveFound = true;
 								break;
 							}
 						}
@@ -73,8 +68,7 @@ export class PlantUMLRendererPlugin implements ADFProcessingPlugin<void, void> {
 							
 							if (!isUmlSyntax && firstLine.length > 0) {
 								diagramName = firstLine;
-								console.log('Using first line as diagram name:', diagramName);
-							}
+								}
 						}
 					}
 
@@ -124,8 +118,7 @@ export class PlantUMLRendererPlugin implements ADFProcessingPlugin<void, void> {
 					// Add title parameter if we extracted a diagram name
 					if (diagramName) {
 						macroParams.title = diagramName;
-						console.log('Adding title parameter to PlantUML macro:', diagramName);
-					}
+						}
 
 					return {
 						type: "extension",

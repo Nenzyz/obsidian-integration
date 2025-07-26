@@ -83,12 +83,17 @@ export default class ObsidianAdaptor implements LoaderAdaptor {
 			}
 		}
 
+		let contents = await this.vault.cachedRead(file);
+		
+		// Process PlantUML file transclusions
+		contents = await this.processPlantumlTransclusions(contents, file.path);
+		
 		return {
 			pageTitle: file.basename,
 			folderName: file.parent.name,
 			absoluteFilePath: file.path,
 			fileName: file.name,
-			contents: await this.vault.cachedRead(file),
+			contents: contents,
 			frontmatter: parsedFrontMatter,
 		};
 	}
@@ -115,6 +120,57 @@ export default class ObsidianAdaptor implements LoaderAdaptor {
 
 		return false;
 	}
+	
+	async processPlantumlTransclusions(contents: string, currentFilePath: string): Promise<string> {
+		// Match Obsidian's transclusion syntax: ![[filename.puml]] or ![[filename.puml|alias]]
+		// Can appear anywhere in the line
+		const transclusionRegex = /!\[\[([^\]]+\.puml)(?:\|[^\]]+)?\]\]/g;
+		
+		
+		let processedContents = contents;
+		let match: RegExpExecArray | null;
+		const matches: Array<{fullMatch: string, transcludedPath: string, index: number}> = [];
+		
+		// First, collect all matches
+		while ((match = transclusionRegex.exec(contents)) !== null) {
+			matches.push({
+				fullMatch: match[0],
+				transcludedPath: match[1],
+				index: match.index
+			});
+		}
+		
+		
+		// Process each match
+		for (const matchInfo of matches) {
+			const { fullMatch, transcludedPath } = matchInfo;
+			
+			// Resolve the file path
+			const transcludedFile = this.metadataCache.getFirstLinkpathDest(
+				transcludedPath,
+				currentFilePath
+			);
+			
+			if (transcludedFile) {
+				try {
+					// Read the PlantUML file contents
+					const pumlContent = await this.vault.cachedRead(transcludedFile);
+					
+					// Convert to a PlantUML code block
+					const codeBlock = `\`\`\`plantuml\n${pumlContent}\n\`\`\``;
+					
+					// Replace the transclusion with the code block
+					processedContents = processedContents.replace(fullMatch, codeBlock);
+				} catch (error) {
+					// If we can't read the file, leave the transclusion as-is
+				}
+			} else {
+			}
+		}
+		
+		return processedContents;
+	}
+	
 	async updateMarkdownValues(
 		absoluteFilePath: string,
 		values: Partial<ConfluencePageConfig.ConfluencePerPageAllValues>,
@@ -124,7 +180,7 @@ export default class ObsidianAdaptor implements LoaderAdaptor {
 		if (file instanceof TFile) {
 			this.app.fileManager.processFrontMatter(file, (fm) => {
 				for (const propertyKey in config) {
-					if (!config.hasOwnProperty(propertyKey)) {
+					if (!Object.prototype.hasOwnProperty.call(config, propertyKey)) {
 						continue;
 					}
 

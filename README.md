@@ -6,7 +6,7 @@ Copyright (c) 2022 Atlassian Pty Ltd
 
 Copyright (c) 2022 Atlassian US, Inc.
 
-`Obsidian Confluence Integration Plugin` is an open-source plugin for [Obsidian.md](https://obsidian.md/) that allows you to publish markdown content from Obsidian to [Atlassian Confluence](https://www.atlassian.com/software/confluence). It supports [Obsidian markdown extensions](https://help.obsidian.md/How+to/Format+your+notes) for richer content and includes a CLI for pushing markdown files from the command line. Currently, the plugin only supports Atlassian Cloud instances.
+`Obsidian Confluence Integration Plugin` is an open-source plugin for [Obsidian.md](https://obsidian.md/) that allows you to publish markdown content from Obsidian to [Atlassian Confluence](https://www.atlassian.com/software/confluence). It supports [Obsidian markdown extensions](https://help.obsidian.md/How+to/Format+your+notes) for richer content and includes a CLI for pushing markdown files from the command line. The plugin supports both Atlassian Cloud and Server instances.
 
 ## Features
 
@@ -14,6 +14,10 @@ Copyright (c) 2022 Atlassian US, Inc.
 - Support for Obsidian markdown extensions
 - CLI for pushing markdown files from disk
 - Commands and ribbon icon for easy access
+- **PlantUML diagram support**: Convert PlantUML code blocks to Confluence PlantUML macros
+- **PlantUML file transclusion**: Automatically convert `![[*.puml]]` file embeds to inline PlantUML diagrams
+- **Confluence Server compatibility**: Support for both Cloud and Server instances with storage format conversion
+- **Personal Access Token (PAT) authentication**: Support for Confluence Server 7.9+ authentication
 
 ## Issues
 Please log issues to https://github.com/markdown-confluence/markdown-confluence/issues as this is where the code is being developed. 
@@ -55,6 +59,39 @@ To publish pages outside the `folderToPublish`, add the `connie-publish` YAML fr
 connie-publish: true
 ---
 ```
+
+### PlantUML Diagram Support
+
+The plugin supports PlantUML diagrams in two ways:
+
+#### 1. PlantUML Code Blocks
+You can include PlantUML diagrams directly in your markdown using code blocks:
+
+````markdown
+```plantuml
+@startuml
+Alice -> Bob: Hello
+Bob --> Alice: Hi!
+@enduml
+```
+````
+
+These will be automatically converted to Confluence PlantUML macros when published.
+
+#### 2. PlantUML File Transclusion
+You can also maintain PlantUML diagrams as separate `.puml` files and embed them using Obsidian's transclusion syntax:
+
+```markdown
+![[path/to/diagram.puml]]
+```
+
+Or with an alias:
+
+```markdown
+![[path/to/diagram.puml|My Diagram]]
+```
+
+When published, these transclusions will be automatically converted to inline PlantUML diagrams in Confluence.
 
 ### Example Workflow
 1. Install and configure the `confluence-integration` plugin.

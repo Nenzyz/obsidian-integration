@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased] (2025-07-26)
+
+### Features
+
+* **PlantUML file transclusion**: Added support for converting Obsidian PlantUML file transclusions (`![[*.puml]]` and `![[*.puml|alias]]`) to inline PlantUML code blocks when publishing to Confluence
+* **Confluence Server compatibility**: Enhanced support for Confluence Server instances with improved storage format conversion for version 8.5.21+
+* **Personal Access Token authentication**: Added support for PAT authentication with Confluence Server 7.9+
+
+### Bug Fixes
+
+* **PlantUML title extraction**: Fixed regex pattern for detecting PlantUML transclusions to properly match transclusions anywhere in a line
+* **List conversion**: Improved list rendering in Confluence storage format
+* **Plugin loading**: Resolved TypeScript compilation errors and improved error handling
+
 ### Dependencies
 
 * The following workspace dependencies were updated
